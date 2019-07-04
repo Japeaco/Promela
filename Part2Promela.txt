@@ -1,0 +1,175 @@
+1	#define N 2
+2	byte init_data[8];
+3	byte size=8;
+4	mtype={ack};
+5	
+6	proctype proc (byte my_id, next_id, previous_id; chan to_next, from_previous, to_receiver)
+7	{ 
+8		byte my_data[N]; 
+9		byte received[size];
+10		byte pwd[N];
+11		byte receivedIds[3];
+12		byte idIndex=0, idCount=0, i=0, j=0, k=0, l=0, m=0, n=0, o=0, p=0, ids=1, idr=0, big=0, index=0, numberRec = 0, copies = 0;
+13		mtype a;
+14		
+15		do
+16			// initialise the data into each processes array
+17			:: i<N -> my_data[i] = init_data[my_id*N + i]; i++ 
+18			:: i==N -> break
+19		od;
+20	
+21		do
+22		:: j<size ->
+23				if
+24				// first send the number residing in the processes own data
+25				:: o<1 -> to_next ! my_data[k], ids; received[l]=my_data[k]; k++; l++; o++; j++; ids++;
+26				// receive the number sent from the previous process
+27				:: o==1 & (j+1)%4 > 0 -> from_previous ? numberRec, idr; receivedIds[idIndex] = idr; idIndex++; do
+28														// check there are no two messages with the same id; this would mean 
+29															// a message was repeated	and sent twice
+30														:: idCount < 3 ->
+31															if
+32															:: idr == receivedIds[idCount] -> copies++; idCount++;
+33															:: idr != receivedIds[idCount] -> idCount++;
+34															fi
+35														:: else -> break
+36														od;
+37														if
+38														// if the number received isnt a copy it is assigned to the array
+39														:: copies < 2 -> received[l] = numberRec; idCount=0; assert(copies < 2)
+40														:: copies >= 2 -> idCount=0; assert(copies >= 2)
+41														fi; o++; copies=0;		
+42				// send the number that was previously received to the proceeding process
+43				:: o==2 & (j+1)%4 > 0 -> to_next ! received[l] , ids;	o--; j++; l++; ids++;
+44				// once three numbers are received, equalling 4 total, the process repeats
+45				:: (j+1)%4==0	& o != 0  -> from_previous ? numberRec, idr; receivedIds[idIndex] = idr; do
+46													:: idCount < 3 ->
+47														if
+48														:: idr == receivedIds[idCount] -> copies++; idCount++;
+49														:: idr != receivedIds[idCount] -> idCount++;
+50														fi
+51													:: else -> break
+52													od;
+53													if
+54													:: copies < 2 -> received[l] = numberRec; idCount=0; assert(copies < 2)
+55													:: copies >= 2 -> idCount=0; assert(copies >= 2);
+56													fi; copies=0;	
+57						// variables are returned to 0 to restart the process for the next number in the password
+58						idIndex=0; l++; j++; o=0; ids=1; receivedIds[0] = 0; receivedIds[1] = 0; receivedIds[2] = 0;
+59				fi
+60		:: else -> do		
+61			//check the largest of every 4 numbers received and assign each to the final password array
+62			:: index < size -> 		if
+63					:: (index+1)%4==0 -> 
+64							if
+65							:: big <= received[index] -> big=received[index]; pwd[m]=big; big=0; m++; index++;		
+66							:: else -> pwd[m]=big; big=0; m++; index++;		
+67							fi
+68					:: big <= received[index] & (index+1)%4 > 0 -> big=received[index]; index++;
+69					:: big  > received[index] & (index+1)%4 > 0 -> index++;
+70					fi
+71			// send the password to the receiver
+72			:: n<N & index==size -> to_receiver ! pwd[n]; n++
+73			od
+74		od
+75				
+76	}
+77	
+78	proctype receiver (chan from_A, from_B, from_C, from_D)
+79	{ 
+80		byte result[N];
+81		byte a=0, b=0, c=0, d=0, i=0, prevInd = 0, resultInd = 0;
+82		byte initIndex = 0;
+83		byte pass[4];
+84		byte passInd = 0;
+85		byte checkInd = 0;
+86		byte recBig = 0;
+87		byte ind=N;
+88	
+89		byte index=0;
+90	
+91		do
+92		:: i<N ->
+93			if
+94			// if the receiver has received a number from a process it can then only receive numbers from that process
+95			:: b==0 & c==0 & d==0 -> from_A ? result[a]; a++; i++;
+96			:: a==0 & c==0 & d==0 -> from_B ? result[b]; b++; i++;
+97			:: a==0 & b==0 & d==0 -> from_C ? result[c]; c++; i++;
+98			:: a==0 & b==0 & c==0 -> from_D ? result[d]; d++; i++;
+99			fi
+100		:: else -> break;
+101		od; 
+102	
+103		// These calculations are purely for correctness requirements and do not effect the numbers received by the receiver
+104		do		
+105		:: resultInd < N -> 		if
+106				:: passInd == 3 ->  	pass[passInd] = init_data[initIndex]; 
+107						do		
+108						:: checkInd < 4 -> 		if
+109								:: checkInd == 3 -> if
+110										:: recBig <= pass[checkInd] -> recBig=pass[checkInd]; 
+111											assert(recBig == result[resultInd]); prevInd++; initIndex = prevInd; 
+112													passInd=0; resultInd++; recBig=0; checkInd=0; break;
+113										:: recBig > pass[checkInd] -> assert(recBig == result[resultInd]); prevInd++; initIndex = prevInd; 
+114													passInd=0; resultInd++; recBig=0; checkInd=0; break;
+115										fi
+116								:: checkInd < 3 & recBig <= pass[checkInd] -> recBig=pass[checkInd]; checkInd++;	
+117								:: checkInd < 3 & recBig > pass[checkInd] -> checkInd++;	
+118								fi
+119						od
+120				:: passInd < 3 -> pass[passInd] = init_data[initIndex]; initIndex = initIndex + ind; passInd++;
+121				fi
+122		od
+123	}
+124	
+125	// emulated channel between each process and receiver
+126	proctype channel(chan in, out) 
+127	{	
+128		byte z, x, lost = 0;
+129		end:
+130		do
+131		:: in ? z, x -> progress: out ! z, x
+132		od
+133	}
+134	
+135	init {
+136		chan AtoR = [N] of {byte}; chan BtoR = [N] of {byte}; chan CtoR = [N] of {byte}; chan DtoR= [N] of {byte}; 
+137	
+138		chan AtoChan = [1] of {byte, byte}; chan ChantoB = [1] of {byte, byte}; chan BtoChan = [1] of {byte, byte}; chan ChantoC= [1] of {byte, byte};
+139		chan CtoChan = [1] of {byte, byte}; chan ChantoD = [1] of {byte, byte}; chan DtoChan = [1] of {byte, byte}; chan ChantoA = [1] of {byte, byte};
+140		chan ChantoR= [1] of {byte, byte}; 
+141	
+142		chan AtoChanR = [1] of {byte}; chan ChanAtoR = [1] of {byte}; chan BtoChanR = [1] of {byte}; chan ChanBtoR= [1] of {byte};
+143		chan CtoChanR = [1] of {byte}; chan ChanCtoR = [1] of {byte}; chan DtoChanR = [1] of {byte}; chan ChanDtoR = [1] of {byte};
+144	
+145		atomic
+146		{
+147			init_data[0]=2;init_data[1]=0;init_data[2]=5;init_data[3]=8;
+148			init_data[4]=4;init_data[5]=1;init_data[6]=3;init_data[7]=9;
+149			/*init_data[8]=2;init_data[9]=0;init_data[10]=5;init_data[11]=8;
+150			init_data[12]=4;init_data[13]=1;init_data[14]=3;init_data[15]=9;
+151			init_data[16]=2;init_data[17]=0;init_data[18]=5;init_data[19]=8;
+152			init_data[20]=4;init_data[21]=1;init_data[22]=3;init_data[23]=9;
+153			init_data[24]=2;init_data[25]=0;init_data[26]=5;init_data[27]=8;
+154			init_data[28]=4;init_data[29]=1;init_data[30]=3;init_data[31]=9;
+155			init_data[32]=2;init_data[33]=0;init_data[34]=5;init_data[35]=8;
+156			init_data[36]=4;init_data[37]=1;init_data[38]=3;init_data[39]=9;
+157			init_data[40]=2;init_data[41]=0;init_data[42]=5;init_data[43]=8;
+158			init_data[44]=4;init_data[45]=1;init_data[46]=3;init_data[47]=9;
+159			init_data[48]=2;init_data[49]=0;init_data[50]=5;init_data[51]=8;
+160			init_data[52]=4;init_data[53]=1;init_data[54]=3;init_data[55]=9;
+161			init_data[56]=2;init_data[57]=0;init_data[58]=5;init_data[59]=8;
+162			init_data[60]=4;init_data[61]=1;init_data[62]=3;init_data[23]=9;
+163			init_data[64]=2;init_data[65]=0;init_data[66]=5;init_data[67]=8;
+164			init_data[68]=4;init_data[69]=1;init_data[70]=3;init_data[71]=9;
+165			init_data[72]=2;init_data[73]=0;init_data[74]=5;init_data[75]=8;
+166			init_data[76]=4;init_data[77]=1;init_data[78]=3;init_data[79]=9;*/
+167	
+168			run proc (0,1,3,AtoChan,ChantoA,AtoR); run channel(AtoChan, ChantoB);
+169			run proc (1,2,0,BtoChan,ChantoB,BtoR); run channel(BtoChan, ChantoC);
+170			run proc (2,3,1,CtoChan,ChantoC,CtoR); run channel(CtoChan, ChantoD); 
+171			run proc (3,0,2,DtoChan,ChantoD,DtoR); run channel(DtoChan, ChantoA);
+172			run receiver (AtoR,BtoR,CtoR,DtoR)
+173		}
+174	}
+
